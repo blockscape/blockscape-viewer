@@ -8,6 +8,10 @@
     "test": "vue-cli-service test"
   },
   "dependencies": {
+    "@types/lodash": "^4.14.106",
+    "@types/three": "^0.91.3",
+    "lodash": "^4.17.5",
+    "three": "^0.91.0",
     "vue": "^2.5.13",
     "vue-class-component": "^6.0.0",
     "vue-mixin-tween": "^0.1.3",

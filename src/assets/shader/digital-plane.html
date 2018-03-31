@@ -1,0 +1,43 @@
+<script type="x-shader/x-vertex">
+
+varying vec2 point;
+
+void main() {
+
+    point = position.xy;
+
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}
+</script>
+<script type="x-shader/x-fragment">
+uniform vec3 color;
+uniform float zoom;
+uniform float size;
+
+varying vec2 point;
+
+void calculateAmp(scalar, size, width) {
+    float diff = abs(position % size);
+    diff = min(size - diff, diff);
+
+    return max((width - diff) / width, 0);
+}
+
+void main() {
+
+    // display two zoom levels worth of zoom: amp 1 for the bigger level, and amp 2 for the smaller level
+    float gridSize = pow(size, floor(zoom));
+    float lineWidth = gridSize / size / 10;
+
+    float amp = calculateAmp(point.x, gridSize, lineWidth);
+    amp = max(amp, calculateAmp(point.y, gridSize, lineWidth));
+    
+    gridSize = gridSize / size;
+    lineWidth = lineWidth / 2;
+
+    amp = max(amp, calculateAmp(point.x, gridSize, lineWidth) / 2);
+    amp = max(amp, calculateAmp(point.y, gridSize, lineWidth) / 2);
+
+    gl_FragColor = color * amp;
+}
+</script>

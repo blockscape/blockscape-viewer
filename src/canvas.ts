@@ -1,5 +1,5 @@
 // in a similar way to strokeRect on CanvasRenderingContext2D, draw a rectangle with rounded corners
-export function strokeRoundedRect(ctx: CanvasRenderingContext2D, 
+export function pathRoundedRect(ctx: CanvasRenderingContext2D, 
     x: number, y: number, 
     w: number, h: number, 
     r: number) {
@@ -14,6 +14,4 @@ export function strokeRoundedRect(ctx: CanvasRenderingContext2D,
     ctx.arc(x + r, y + h - r, r, Math.PI / 2, Math.PI);
     ctx.lineTo(x, y + r);
     ctx.arc(x + r, y + r, r, -Math.PI, -Math.PI / 2);
-
-    ctx.stroke();
 }

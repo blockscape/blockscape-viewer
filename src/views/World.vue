@@ -1,20 +1,6 @@
 <template>
-<div id="#entry-show">
-    <div class="logo complete-center" :style="{
-        opacity: opacityTween,
-        top: (50 - verticalOffsetTween) + '%'
-    }">
-        <img src="../assets/img/icons8-sugar-cube.svg" />
-        <span ref="veiledText" :style="{
-            width: veilTween + 'px'
-            }">SCAPE</span>
-    </div>
-    <div class="progress complete-center" :style="{
-        opacity: (verticalOffsetTween - 7.5) / 7.5,
-        top: (50 + verticalOffsetTween) + '%'    
-    }">
-        <ProgressBar :progress="37"></ProgressBar>
-    </div>
+<div id="#world">
+    
 </div>
 </template>
 
@@ -89,5 +75,3 @@ export default class EntryLoader extends Vue {
     }
 }
 </script>
-
-
