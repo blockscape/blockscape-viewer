@@ -1,32 +1,15 @@
 <template>
 <div id="#world">
-    
+    <digital-plane></digital-plane>
 </div>
 </template>
 
-<style lang="scss" scoped>
-.logo {
-    display: inline-block;
-    margin-right: 20px;
+<style lang="scss">
+
+body {
+    background-color: #222;
 }
 
-.logo img {
-    width: 50px;
-    height: 50px;
-    margin-left: 10px;
-    margin-right: 10px;
-}
-
-.logo span {
-    color: white;
-    vertical-align: bottom;
-    font-size: 50px;
-    font-family: Quicksand;
-    font-weight: lighter;
-    overflow: hidden;
-    display: inline-block;
-    direction: rtl;
-}
 </style>
 
 <script lang="ts">
@@ -36,7 +19,7 @@ import VueMixinTween from 'vue-mixin-tween';
 
 import { timeout } from '../promise';
 
-import ProgressBar from '@/components/ProgressBar.vue'; // @ is an alias to /src
+import DigitalPlane from '@/components/DigitalPlane.vue'; // @ is an alias to /src
 
 @Component({
     mixins: [
@@ -46,32 +29,15 @@ import ProgressBar from '@/components/ProgressBar.vue'; // @ is an alias to /src
     ],
 
     components: {
-        ProgressBar
+        DigitalPlane: DigitalPlane
     }
 })
-export default class EntryLoader extends Vue {
-
-    private stage = 'start';
-    private veil = 0;
-    private opacity = 0;
-
-    private verticalOffset = 0;
+export default class World extends Vue {
 
     created() {
-        this.veil = 0.1;
-        this.opacity = 0.1;
-        this.verticalOffset = 0.1;
     }
 
     async mounted() {
-        this.opacity = 1;
-        await timeout(1000);
-        this.veil = 0.1;
-        await timeout(1000);
-        this.veil = (<any>this.$refs.veiledText).scrollWidth;
-
-        await timeout(500);
-        this.verticalOffset = 15;
     }
 }
 </script>
