@@ -101,6 +101,8 @@ class Plot3D extends THREE.Mesh {
     private buildings: Building3D[] = [];
     private robots: Robot3D[] = [];
 
+    readonly pos: THREE.Vector2;
+
     constructor(pos: THREE.Vector2) {
 
         //super(PLOT_PLANE_GEOMETRY, new MeshBasicMaterial({ color: 0x0000ff}));
@@ -108,6 +110,8 @@ class Plot3D extends THREE.Mesh {
 
         this.translateX(pos.x);
         this.translateY(pos.y);
+
+        this.pos = pos;
 
         // open connection to RPC
     }
@@ -124,13 +128,7 @@ class Plot3D extends THREE.Mesh {
 // how big one plot is on the screen if zoom = 0
 let ZOOM_PLOT_SIZE = 256.0;
 
-@Component({
-    mixins: [
-        VueMixinTween('zoom'),
-        VueMixinTween('centerx'),
-        VueMixinTween('centery')
-    ]
-})
+@Component
 export default class DigitalPlane  extends Vue {
 
     @Prop() private startCenter: THREE.Vector2 = new THREE.Vector2(0, 0);
@@ -138,9 +136,10 @@ export default class DigitalPlane  extends Vue {
     private width: number = 400;
     private height: number = 300;
 
-    private centerx: number = 0;
-    private centery: number = 0;
+    private center: THREE.Vector2 = new THREE.Vector2();
+    private centerDrag: THREE.Vector2 = new THREE.Vector2();
     private zoom: number = 0;
+    private zoomDrag: number = 0;
 
     private plots: Plot3D[] = [];
 
@@ -149,7 +148,9 @@ export default class DigitalPlane  extends Vue {
     private scene: THREE.Scene = new THREE.Scene();
     private renderer: THREE.WebGLRenderer|null = null;
 
-    private drag: THREE.Vector2|null = null;
+    private prevT: number = -1;
+
+    private mousePrevPos: THREE.Vector2|null = null;
 
     created() {
 
@@ -167,9 +168,12 @@ export default class DigitalPlane  extends Vue {
         this.scene.add(this.plots[2]);
         this.scene.add(this.plots[3]);
 
-        this.centerx = 0.5;
-        this.centery = 0.5
+        this.center.x = 0.5;
+        this.center.y = 0.5;
+        this.centerDrag.x = 0.5;
+        this.centerDrag.y = 0.5;
         this.zoom = -1;
+        this.zoomDrag = -1;
 
         /*var geometry = new THREE.BoxGeometry( 1, 1, 1 );
 			var material = new THREE.MeshBasicMaterial( { color: 0x00ff00 } );
@@ -205,17 +209,16 @@ export default class DigitalPlane  extends Vue {
             event.clientX - (<HTMLCanvasElement>this.$refs.canvas).offsetLeft,
             event.clientY - (<HTMLCanvasElement>this.$refs.canvas).offsetTop));
 
-        if(event.deltaY < 0) {
-            this.zoom++;
-            this.centerx = (this.centerx + origin.x) / 2;
-            this.centery = (this.centery + origin.y) / 2;
-        }
-        else {
-            this.zoom--;
+        let delta = event.deltaY * 0.01;
 
-            this.centerx = this.centerx + (this.centerx - origin.x);
-            this.centery = this.centery + (this.centery - origin.y);
-        }
+        let absdelta = Math.abs(delta);
+
+        this.zoom += delta;
+
+        this.center.x = origin.x - (origin.x - this.center.x) / Math.pow(2, delta);
+        this.center.y = origin.y - (origin.y - this.center.y) / Math.pow(2, delta);
+
+        console.log(origin.x, origin.y, this.zoom);
 
         event.preventDefault();
 
@@ -225,28 +228,28 @@ export default class DigitalPlane  extends Vue {
     mouseMove(event: any) {
         if(event.buttons & 1) {
             if(event.type == 'mousedown') {
-                this.drag = new THREE.Vector2(event.screenX, event.screenY);
+                this.mousePrevPos = new THREE.Vector2(event.screenX, event.screenY);
             }
-            else if(event.type == 'mousemove' && this.drag) {
-                let dx = event.screenX - this.drag.x;
-                let dy = event.screenY - this.drag.y;
+            else if(event.type == 'mousemove' && this.mousePrevPos) {
+                let dx = event.screenX - this.mousePrevPos.x;
+                let dy = event.screenY - this.mousePrevPos.y;
 
-                this.centerx -= (dx / ZOOM_PLOT_SIZE) * this.zoomCoordSize;
-                this.centery += (dy / ZOOM_PLOT_SIZE) * this.zoomCoordSize;
+                this.center.x -= (dx / ZOOM_PLOT_SIZE) * this.zoomCoordSize;
+                this.center.y += (dy / ZOOM_PLOT_SIZE) * this.zoomCoordSize;
 
-                this.drag.x = event.screenX;
-                this.drag.y = event.screenY;
+                this.mousePrevPos.x = event.screenX;
+                this.mousePrevPos.y = event.screenY;
             }
             else if(event.type == 'mouseup') {
-                this.drag = null;
+                this.mousePrevPos = null;
             }
         }
     }
 
     pixelToPlaneCoords(pixel: THREE.Vector2): THREE.Vector2 {
         return new THREE.Vector2(
-            this.centerx + ((pixel.x - this.width / 2) / ZOOM_PLOT_SIZE) * this.zoomCoordSize,
-            this.centery - ((pixel.y - this.height / 2) / ZOOM_PLOT_SIZE) * this.zoomCoordSize
+            this.center.x + ((pixel.x - this.width / 2) / ZOOM_PLOT_SIZE) * this.zoomCoordSize,
+            this.center.y - ((pixel.y - this.height / 2) / ZOOM_PLOT_SIZE) * this.zoomCoordSize
         );
     }
 
@@ -266,36 +269,98 @@ export default class DigitalPlane  extends Vue {
         //this.renderer.
     }
 
-    animate(t: number) {
+    // called when the view position changes so that plots can be added or removed from the map
+    reloadPlots() {
+        // find the viewport min/max coords
+        let min = this.pixelToPlaneCoords(new THREE.Vector2());
+        let max = new THREE.Vector2(this.center.x - min.x, this.center.y - min.y);
 
-        if((<any>this.$refs.canvas).offsetWidth != (<any>this.$refs.canvas).width || (<any>this.$refs.canvas).offsetHeight != (<any>this.$refs.canvas).height) {
-            this.resize();
+        // add or remove plots
+        min.x = Math.floor(min.x);
+        min.y = Math.floor(min.y);
+        max.x = Math.ceil(max.x);
+        max.y = Math.ceil(max.y);
+        let count = max.x - min.x * max.y - min.y;
+        if(count > 100) {
+            // fudged viewing mode--download no plot data, but draw something convincing
+            // consider not actually clearing it out, we just happen to be doing that right now
+            this.plots = [];
         }
+        else {
+            if(min == this.plots[0].pos &&
+                max == this.plots[this.plots.length - 1].pos)
+                return; // no change to plots
+            
+            let newplots = new Array(count);
+            var i = 0;
+            var j = 0;
+            for(let y = min.y;y < max.y;y++) {
+                for(let x = min.x;x < max.x;x++) {
+                    let p = new THREE.Vector2(x, y);
+                    if(this.plots[i].pos == p) {
+                        newplots[j++] = this.plots[i++];
+                    }
 
+                    // create the new plot
+                    newplots[j++] = new Plot3D(p);
+                }
+            }
+
+            this.plots = newplots;
+        }
+    }
+
+    update(t: number) {
+        var timePassed = 1 / 60;
+        if(this.prevT != -1)
+            timePassed = t - this.prevT;
+
+        this.centerDrag.x += (this.center.x - this.centerDrag.x) * 10.0 * (timePassed / 1000);
+        this.centerDrag.y += (this.center.y - this.centerDrag.y) * 10.0 * (timePassed / 1000);
+        this.zoomDrag = (this.zoom - this.zoomDrag) * 10.0 * (timePassed / 1000);
+    }
+
+    draw() {
         // TODO: Take into account screen width/height for zoom
         this.camera.left = -this.orthoWidth / 2;
         this.camera.right = this.orthoWidth / 2;
         this.camera.top = this.orthoHeight / 2;
         this.camera.bottom = -this.orthoHeight / 2;
 
-        this.camera.position.x = this.centerx;
-        this.camera.position.y = this.centery;
+        this.camera.position.x = this.centerDrag.x;
+        this.camera.position.y = this.centerDrag.y;
         this.camera.position.z = 10;
 
         this.camera.updateProjectionMatrix();
 
-        this.camera.lookAt(new THREE.Vector3(this.centerx, this.centery, 0));
+        this.camera.lookAt(new THREE.Vector3(this.centerDrag.x, this.centerDrag.y, 0));
 
         if(this.renderer) {
             this.renderer.render(this.scene, this.camera);
         }
+    }
+
+    animate(t: number) {
+
+        if((<any>this.$refs.canvas).offsetWidth != (<any>this.$refs.canvas).width || (<any>this.$refs.canvas).offsetHeight != (<any>this.$refs.canvas).height) {
+            this.resize();
+        }
+
+        this.update(t);
+        this.draw();
         
         // we only want to keep animating if there is stuff to do
         requestAnimationFrame(this.animate);
+
+        this.prevT = t;
     }
 
     get zoomCoordSize() {
         return Math.pow(1 / 2, this.zoom);
+    }
+
+    get zoomDragCoordSize() {
+        return Math.pow(1 / 2, this.zoomDrag);
     }
 
     get orthoWidth() {
