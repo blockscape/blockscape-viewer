@@ -17,13 +17,19 @@ import VueMixinTween from 'vue-mixin-tween';
 import { pathRoundedRect } from '../canvas';
 
 import { easeOutCubic, easeInCubic } from '../easing';
-import { MeshBasicMaterial } from 'three';
+import { MeshBasicMaterial, Vector2 } from 'three';
 import { mixins } from 'vue-class-component/lib/util';
 
 const FLY_DELAY_RATE = 300;
 const FLY_DELAY_PERCENT = 300;
 const FLY_TIME = 200;
 const FLY_TURN = 50;
+
+interface ViewState {
+    zoom: number,
+    center: THREE.Vector2,
+    tilt: number
+}
 
 class Building3D {
 
@@ -46,7 +52,7 @@ void main() {
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 }`;
 
-let PLOT_FRAGMENT_SHADER = `
+/*let PLOT_FRAGMENT_SHADER = `
 uniform vec3 color;
 uniform float zoom;
 
@@ -68,7 +74,7 @@ void main() {
     // display two zoom levels worth of zoom: amp 1 for the bigger level, and amp 2 for the smaller level
     float gridSize = pow(1.0 / 2.0, floor(zoom) + 3.0);
     //float gridSize = 0.125;
-    float lineWidth = gridSize / 10.0;
+    float lineWidth = gridSize / 20.0;
 
     float amp = 
         max(calculateAmp(point.x, gridSize, lineWidth),
@@ -78,6 +84,48 @@ void main() {
 
     amp = 
         max(amp, 0.5 * max(calculateAmp(point.x, gridSize, lineWidth),
+            calculateAmp(point.y, gridSize, lineWidth)));
+
+    gl_FragColor = vec4(color, amp);
+}
+`*/
+
+let PLOT_FRAGMENT_SHADER = `
+uniform vec3 color;
+uniform float zoom;
+
+varying vec2 point;
+
+float div_mod(float top, float bottom) {
+    return top - (bottom * floor(top / bottom));
+}
+
+float calculateAmp(float scalar, float size, float width) {
+    float diff = abs(div_mod(scalar, size));
+    diff = min(size - diff, diff);
+
+    return max((width - diff) / width, 0.0);
+}
+
+void main() {
+
+    float partial = zoom - floor(zoom);
+
+    // display two zoom levels worth of zoom: amp 1 for the bigger level, and amp 2 for the smaller level
+    float gridSize = pow(1.0 / 2.0, floor(zoom) + 3.0);
+    //float gridSize = 0.125;
+    float lineWidth = gridSize / 20.0;
+
+    lineWidth /= (max(0.8, partial) - 0.8) * 5.0 + 1.0;
+
+    float amp = 
+        max(calculateAmp(point.x, gridSize, lineWidth),
+            calculateAmp(point.y, gridSize, lineWidth));
+
+    gridSize /= 2.0;
+
+    amp = 
+        max(amp, partial * max(calculateAmp(point.x, gridSize, lineWidth),
             calculateAmp(point.y, gridSize, lineWidth)));
 
     gl_FragColor = vec4(color, amp);
@@ -97,13 +145,22 @@ let PLOT_SHADER_PROGRAM = new THREE.ShaderMaterial({
 // each plot is 1x1 in the 3d world
 let PLOT_PLANE_GEOMETRY = new THREE.PlaneBufferGeometry(1, 1);
 
+let PLOT_BASE_COLOR = new THREE.Color(0x444444);
+let PLOT_LOAD_COLOR = new THREE.Color(0x9feaf9);
+
 class Plot3D extends THREE.Mesh {
     private buildings: Building3D[] = [];
     private robots: Robot3D[] = [];
 
+    private state: 'loading'|'active'|'sieged';
+
+    private color: THREE.Color;
+
     readonly pos: THREE.Vector2;
 
-    constructor(pos: THREE.Vector2) {
+    private readonly viewState: ViewState;
+
+    constructor(pos: THREE.Vector2, vs: ViewState) {
 
         //super(PLOT_PLANE_GEOMETRY, new MeshBasicMaterial({ color: 0x0000ff}));
         super(PLOT_PLANE_GEOMETRY, PLOT_SHADER_PROGRAM);
@@ -112,16 +169,32 @@ class Plot3D extends THREE.Mesh {
         this.translateY(pos.y);
 
         this.pos = pos;
+        this.viewState = vs;
+        this.color = PLOT_BASE_COLOR;
 
         // open connection to RPC
+        this.state = 'loading';
     }
 
     update(t: number) {
 
+        let midsecond = (t % 1000) / 1000.0;
+
+        switch(this.state) {
+        case 'loading':
+            this.color = PLOT_LOAD_COLOR.clone();
+            this.color.lerp(PLOT_BASE_COLOR, midsecond);
+
+            break;
+        case 'active':
+
+        case 'sieged':
+        }
     }
 
     onBeforeRender = () => {
-        PLOT_SHADER_PROGRAM.uniforms.color = { value: new THREE.Color(0x444444) };
+        PLOT_SHADER_PROGRAM.uniforms.color = { value: this.color };
+        PLOT_SHADER_PROGRAM.uniforms.zoom = { value: this.viewState.zoom };
     }
 }
 
@@ -136,10 +209,15 @@ export default class DigitalPlane  extends Vue {
     private width: number = 400;
     private height: number = 300;
 
-    private center: THREE.Vector2 = new THREE.Vector2();
+    private viewState: ViewState = {
+        zoom: 0,
+        center: new THREE.Vector2(),
+        tilt: 0
+    };
+
     private centerDrag: THREE.Vector2 = new THREE.Vector2();
-    private zoom: number = 0;
     private zoomDrag: number = 0;
+    private tiltDrag: number = 0;
 
     private plots: Plot3D[] = [];
 
@@ -155,25 +233,27 @@ export default class DigitalPlane  extends Vue {
     created() {
 
         // for testing
-        this.plots.push(new Plot3D(new THREE.Vector2(0, 0)));
+        /*this.plots.push(new Plot3D(new THREE.Vector2(0, 0)));
         this.plots.push(new Plot3D(new THREE.Vector2(0, 1)));
         this.plots.push(new Plot3D(new THREE.Vector2(1, 0)));
         this.plots.push(new Plot3D(new THREE.Vector2(1, 1)));
         /*this.plots.push(new Plot3D(new THREE.Vector2(0, 0)));
         this.plots.push(new Plot3D(new THREE.Vector2(0, 0)));
         this.plots.push(new Plot3D(new THREE.Vector2(0, 0)));
-        this.plots.push(new Plot3D(new THREE.Vector2(0, 0)));*/
+        this.plots.push(new Plot3D(new THREE.Vector2(0, 0)));
         this.scene.add(this.plots[0]);
         this.scene.add(this.plots[1]);
         this.scene.add(this.plots[2]);
-        this.scene.add(this.plots[3]);
+        this.scene.add(this.plots[3]);*/
 
-        this.center.x = 0.5;
-        this.center.y = 0.5;
+        this.viewState.center.x = 0.5;
+        this.viewState.center.y = 0.5;
         this.centerDrag.x = 0.5;
         this.centerDrag.y = 0.5;
-        this.zoom = -1;
+        this.viewState.zoom = -1;
         this.zoomDrag = -1;
+
+        this.reloadPlots();
 
         /*var geometry = new THREE.BoxGeometry( 1, 1, 1 );
 			var material = new THREE.MeshBasicMaterial( { color: 0x00ff00 } );
@@ -182,6 +262,8 @@ export default class DigitalPlane  extends Vue {
     }
 
     mounted() {
+        this.camera.up = new THREE.Vector3(0, 1, 1).normalize();
+
         this.resize();
 
         (<HTMLCanvasElement>this.$refs.canvas).addEventListener('wheel', this.mouseZoom);
@@ -213,12 +295,13 @@ export default class DigitalPlane  extends Vue {
 
         let absdelta = Math.abs(delta);
 
-        this.zoom += delta;
+        this.viewState.zoom += delta;
 
-        this.center.x = origin.x - (origin.x - this.center.x) / Math.pow(2, delta);
-        this.center.y = origin.y - (origin.y - this.center.y) / Math.pow(2, delta);
+        this.viewState.center.x = origin.x - (origin.x - this.viewState.center.x) / Math.pow(2, delta);
+        this.viewState.center.y = origin.y - (origin.y - this.viewState.center.y) / Math.pow(2, delta);
 
-        console.log(origin.x, origin.y, this.zoom);
+        //console.log(origin.x, origin.y, this.zoom);
+        this.reloadPlots();
 
         event.preventDefault();
 
@@ -231,14 +314,16 @@ export default class DigitalPlane  extends Vue {
                 this.mousePrevPos = new THREE.Vector2(event.screenX, event.screenY);
             }
             else if(event.type == 'mousemove' && this.mousePrevPos) {
-                let dx = event.screenX - this.mousePrevPos.x;
-                let dy = event.screenY - this.mousePrevPos.y;
+                let dx = (event.screenX - this.mousePrevPos.x) / ZOOM_PLOT_SIZE * this.zoomCoordSize;
+                let dy = (event.screenY - this.mousePrevPos.y) / ZOOM_PLOT_SIZE * this.zoomCoordSize;
 
-                this.center.x -= (dx / ZOOM_PLOT_SIZE) * this.zoomCoordSize;
-                this.center.y += (dy / ZOOM_PLOT_SIZE) * this.zoomCoordSize;
+                this.viewState.center.x += -dx * Math.cos(this.tiltDrag) + dy * Math.sin(this.tiltDrag);
+                this.viewState.center.y +=  dx * Math.sin(this.tiltDrag) + dy * Math.cos(this.tiltDrag);
 
                 this.mousePrevPos.x = event.screenX;
                 this.mousePrevPos.y = event.screenY;
+
+                this.reloadPlots();
             }
             else if(event.type == 'mouseup') {
                 this.mousePrevPos = null;
@@ -248,8 +333,8 @@ export default class DigitalPlane  extends Vue {
 
     pixelToPlaneCoords(pixel: THREE.Vector2): THREE.Vector2 {
         return new THREE.Vector2(
-            this.center.x + ((pixel.x - this.width / 2) / ZOOM_PLOT_SIZE) * this.zoomCoordSize,
-            this.center.y - ((pixel.y - this.height / 2) / ZOOM_PLOT_SIZE) * this.zoomCoordSize
+            this.viewState.center.x + ((pixel.x - this.width / 2) / ZOOM_PLOT_SIZE) * this.zoomCoordSize,
+            this.viewState.center.y - ((pixel.y - this.height / 2) / ZOOM_PLOT_SIZE) * this.zoomCoordSize
         );
     }
 
@@ -266,30 +351,36 @@ export default class DigitalPlane  extends Vue {
         this.width = (<any>this.$refs.canvas).width;
         this.height = (<any>this.$refs.canvas).height;
 
-        //this.renderer.
+        this.reloadPlots();
     }
 
     // called when the view position changes so that plots can be added or removed from the map
     reloadPlots() {
         // find the viewport min/max coords
-        let min = this.pixelToPlaneCoords(new THREE.Vector2());
-        let max = new THREE.Vector2(this.center.x - min.x, this.center.y - min.y);
+        let min = this.pixelToPlaneCoords(new THREE.Vector2(0, this.height));
+        let max = new THREE.Vector2(this.viewState.center.x + (this.viewState.center.x - min.x), this.viewState.center.y + (this.viewState.center.y - min.y));
 
         // add or remove plots
         min.x = Math.floor(min.x);
         min.y = Math.floor(min.y);
-        max.x = Math.ceil(max.x);
-        max.y = Math.ceil(max.y);
-        let count = max.x - min.x * max.y - min.y;
+        max.x = Math.ceil(max.x + 1);
+        max.y = Math.ceil(max.y + 1);
+        let count = (max.x - min.x) * (max.y - min.y);
         if(count > 100) {
             // fudged viewing mode--download no plot data, but draw something convincing
             // consider not actually clearing it out, we just happen to be doing that right now
+            for(let plot of this.plots) {
+                this.scene.remove(plot);
+            }
             this.plots = [];
         }
         else {
-            if(min == this.plots[0].pos &&
+            //console.log('Now loading plots.');
+            if(this.plots.length && min == this.plots[0].pos &&
                 max == this.plots[this.plots.length - 1].pos)
                 return; // no change to plots
+            
+            //console.log('Done with you');
             
             let newplots = new Array(count);
             var i = 0;
@@ -297,17 +388,42 @@ export default class DigitalPlane  extends Vue {
             for(let y = min.y;y < max.y;y++) {
                 for(let x = min.x;x < max.x;x++) {
                     let p = new THREE.Vector2(x, y);
-                    if(this.plots[i].pos == p) {
+                    //console.log('Done with you', i < this.plots.length);
+                    while(i < this.plots.length && (this.plots[i].pos.x < x || this.plots[i].pos.y < y)) {
+                        // remove plot from scene and increment
+                        this.scene.remove(this.plots[i++]);
+                    }
+                    //console.log('Done with you');
+                    if(i < this.plots.length && this.plots[i] && this.plots[i].pos == p) {
                         newplots[j++] = this.plots[i++];
                     }
-
-                    // create the new plot
-                    newplots[j++] = new Plot3D(p);
+                    else {
+                        // create the new plot
+                        newplots[j] = new Plot3D(p, this.viewState);
+                        this.scene.add(newplots[j++]);
+                    }
                 }
+            }
+
+            while(i < this.plots.length) {
+                // the rest here are all to be removed
+                this.scene.remove(this.plots[i++]);
             }
 
             this.plots = newplots;
         }
+    }
+
+    @Watch('viewState.zoom')
+    zoomChanged() {
+        // change zoom behavior from 0->1
+        this.viewState.tilt = ((Math.min(3, Math.max(1, this.viewState.zoom)) - 1) / 2) * Math.PI / 4;
+
+        //console.log('Set tilt: ', this.tilt);
+    }
+
+    centerChanged() {
+        this.reloadPlots();
     }
 
     update(t: number) {
@@ -315,9 +431,14 @@ export default class DigitalPlane  extends Vue {
         if(this.prevT != -1)
             timePassed = t - this.prevT;
 
-        this.centerDrag.x += (this.center.x - this.centerDrag.x) * 10.0 * (timePassed / 1000);
-        this.centerDrag.y += (this.center.y - this.centerDrag.y) * 10.0 * (timePassed / 1000);
-        this.zoomDrag = (this.zoom - this.zoomDrag) * 10.0 * (timePassed / 1000);
+        this.centerDrag.x += (this.viewState.center.x - this.centerDrag.x) * 10.0 * (timePassed / 1000);
+        this.centerDrag.y += (this.viewState.center.y - this.centerDrag.y) * 10.0 * (timePassed / 1000);
+        this.zoomDrag += (this.viewState.zoom - this.zoomDrag) * 10.0 * (timePassed / 1000);
+        this.tiltDrag += (this.viewState.tilt - this.tiltDrag) * 10.0 * (timePassed / 1000);
+
+        for(let plot of this.plots) {
+            plot.update(t);
+        }
     }
 
     draw() {
@@ -327,9 +448,13 @@ export default class DigitalPlane  extends Vue {
         this.camera.top = this.orthoHeight / 2;
         this.camera.bottom = -this.orthoHeight / 2;
 
-        this.camera.position.x = this.centerDrag.x;
-        this.camera.position.y = this.centerDrag.y;
-        this.camera.position.z = 10;
+        //console.log(10 * Math.cos(this.tilt));
+
+        this.camera.position.x = this.centerDrag.x - 10 * Math.sin(this.viewState.tilt) * Math.sin(this.tiltDrag);
+        this.camera.position.y = this.centerDrag.y - 10 * Math.sin(this.viewState.tilt) * Math.cos(this.tiltDrag);
+        this.camera.position.z = 10 * Math.cos(this.viewState.tilt);
+
+        this.camera.up = new THREE.Vector3(Math.sin(this.tiltDrag), Math.cos(this.tiltDrag), 1);
 
         this.camera.updateProjectionMatrix();
 
@@ -356,7 +481,7 @@ export default class DigitalPlane  extends Vue {
     }
 
     get zoomCoordSize() {
-        return Math.pow(1 / 2, this.zoom);
+        return Math.pow(1 / 2, this.viewState.zoom);
     }
 
     get zoomDragCoordSize() {
@@ -364,11 +489,11 @@ export default class DigitalPlane  extends Vue {
     }
 
     get orthoWidth() {
-        return this.zoomCoordSize * (this.width / ZOOM_PLOT_SIZE);
+        return this.zoomDragCoordSize * (this.width / ZOOM_PLOT_SIZE);
     }
 
     get orthoHeight() {
-        return this.zoomCoordSize * (this.height / ZOOM_PLOT_SIZE);
+        return this.zoomDragCoordSize * (this.height / ZOOM_PLOT_SIZE);
     }
 }
 </script>
