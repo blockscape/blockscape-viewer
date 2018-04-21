@@ -3,6 +3,8 @@
 body {
     color: #9feaf9;
     background-color: #2b2e3b;
+    padding: 0;
+    margin: 0;
 }
 
 .complete-center {

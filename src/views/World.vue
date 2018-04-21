@@ -1,5 +1,5 @@
 <template>
-<div id="#world">
+<div id="world">
     <digital-plane></digital-plane>
 </div>
 </template>
@@ -8,6 +8,13 @@
 
 body {
     background-color: #222;
+}
+
+#world {
+    width: 100vw;
+    height: 100vh;
+
+    overflow: hidden;
 }
 
 </style>

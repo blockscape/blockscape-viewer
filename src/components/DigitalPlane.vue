@@ -1,5 +1,5 @@
 <template>
-<div class="digital-plane" ref="plane">
+<div class="digital-plane" ref="plane" style="width: 100%; height: 100%">
     <canvas ref="canvas"
             style="width: 100%; height: 100%"
             :width="width"
