@@ -291,9 +291,7 @@ export default class DigitalPlane  extends Vue {
             event.clientX - (<HTMLCanvasElement>this.$refs.canvas).offsetLeft,
             event.clientY - (<HTMLCanvasElement>this.$refs.canvas).offsetTop));
 
-        let delta = event.deltaY * 0.01;
-
-        let absdelta = Math.abs(delta);
+        let delta = Math.min(10 - this.viewState.zoom, Math.max(-1 - this.viewState.zoom, event.deltaY * 0.01));
 
         this.viewState.zoom += delta;
 
@@ -332,9 +330,31 @@ export default class DigitalPlane  extends Vue {
     }
 
     pixelToPlaneCoords(pixel: THREE.Vector2): THREE.Vector2 {
+
+        let d = new THREE.Vector3();
+        this.camera.getWorldDirection(d);
+        let v = new THREE.Vector3();
+        let u = d.clone().cross(this.camera.up).normalize();
+        v.crossVectors(u, this.camera.getWorldDirection(v)).normalize();
+
+        // ray hits plane at an angle.
+        //console.log(u.x, u.y, v.x, v.y, d.x, d.y, d.z);
+
+        let p = this.camera.position.clone().addScaledVector(
+            u, (pixel.x - this.width / 2) / (this.width / 2) * (this.orthoWidth / 2)
+        ).addScaledVector(
+            v, ((this.height - pixel.y) - this.height / 2) / (this.height / 2) * (this.orthoHeight / 2)
+        );
+        console.log(p.z);
+        v.set(0, 0, -1);
+        p.addScaledVector(d, p.z / Math.sin(Math.PI / 2 - d.angleTo(v)));
+
+        console.log(Math.tan(d.angleTo(v)));
+        console.log(p.x, p.y, p.z);
+
         return new THREE.Vector2(
-            this.viewState.center.x + ((pixel.x - this.width / 2) / ZOOM_PLOT_SIZE) * this.zoomCoordSize,
-            this.viewState.center.y - ((pixel.y - this.height / 2) / ZOOM_PLOT_SIZE) * this.zoomCoordSize
+            p.x,
+            p.y
         );
     }
 
